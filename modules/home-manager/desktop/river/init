@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+
+# logger "Starting river."
+#################################################
+# HELPER-FUNCTIONS
+#################################################
+shopt -s lastpipe
+
+function spawn_once {
+	pgrep -f "${1}" >/dev/null || riverctl spawn "${*}"
+}
+
+mod=Mod4
+
+#################################################
+# APPEARANCE
+#################################################
+riverctl background-color 0x000000 # 0x002B36
+riverctl border-color-focused 0x586E75
+riverctl border-color-unfocused 0x073642
+riverctl border-width 1
+
+gsettings set org.gnome.desktop.interface gtk-theme Sweet-mars-v40
+gsettings set org.gnome.desktop.interface icon-theme Adwaita
+gsettings set org.gnome.desktop.wm.preferences button-layout ""
+
+#################################################
+# INPUTS
+#################################################
+riverctl set-repeat 80 300
+riverctl hide-cursor timeout 2000
+riverctl hide-cursor when-typing enabled
+riverctl keyboard-layout -variant abnt2 -options ctrl:nocaps br
+
+for pad in $(riverctl list-inputs | grep -i touchpad); do
+	riverctl input $pad events enabled
+	riverctl input $pad tap enabled
+	riverctl input $pad natural-scroll disabled
+	riverctl input $pad disable-while-typing enabled
+	riverctl input $pad middle-emulation disabled
+done
+
+#################################################
+# LAUNCHY-KEYBINDS
+#################################################
+riverctl map normal Super Q spawn "wezterm"
+riverctl map normal Super+Shift Return spawn "foot --app-id=float"
+riverctl map normal Super D spawn "foot --app-id=float -w 270x150 fzf-menu"
+riverctl map normal Super+Shift R spawn $HOME/.config/river/init
+riverctl map normal Super M spawn $HOME/.local/bin/emw
+riverctl map normal Mod5 P spawn "grimshot --notify copy area"
+riverctl map normal Mod5+Shift P spawn "grimshot --notify save area $XDG_PICTURES_DIR/$(date +'%Y%m%d-%H%M%S')_ss.png"
+
+#################################################
+# WINDOW-MANAGEMENT
+#################################################
+riverctl map normal Super Escape exit
+riverctl map normal Super+Shift Q close
+riverctl map normal Super Z zoom
+riverctl map normal Super F toggle-fullscreen
+riverctl map normal Super Space toggle-float
+riverctl map normal Super Backspace focus-output next
+riverctl map normal Super+Shift Backspace focus-output previous
+
+riverctl map normal Super H focus-view left
+riverctl map normal Super J focus-view down
+riverctl map normal Super K focus-view up
+riverctl map normal Super L focus-view right
+riverctl map normal Super N focus-view next
+riverctl map normal Super P focus-view previous
+
+riverctl map normal Super+Shift H swap left
+riverctl map normal Super+Shift J swap down
+riverctl map normal Super+Shift K swap up
+riverctl map normal Super+Shift L swap right
+riverctl map normal Super+Shift N swap next
+riverctl map normal Super+Shift P swap previous
+
+riverctl map normal Super+Alt H move left 100
+riverctl map normal Super+Alt J move down 100
+riverctl map normal Super+Alt K move up 100
+riverctl map normal Super+Alt L move right 100
+
+riverctl map normal Super+Shift+Alt H resize horizontal -100
+riverctl map normal Super+Shift+Alt J resize vertical 100
+riverctl map normal Super+Shift+Alt K resize vertical -100
+riverctl map normal Super+Shift+Alt L resize horizontal 100
+
+riverctl map normal Super+Shift+Control H snap left
+riverctl map normal Super+Shift+Control J snap down
+riverctl map normal Super+Shift+Control K snap up
+riverctl map normal Super+Shift+Control L snap right
+
+#################################################
+# LAYOUT
+#################################################
+riverctl default-layout rivertile
+rivertile -view-padding 4 -outer-padding 4 &
+
+riverctl map normal Super+Control H send-layout-cmd rivertile "main-ratio -0.05"
+riverctl map normal Super+Control L send-layout-cmd rivertile "main-ratio +0.05"
+riverctl map normal Super+Control k send-layout-cmd rivertile "main-count +1"
+riverctl map normal Super+Control J send-layout-cmd rivertile "main-count -1"
+
+riverctl map normal Super Up send-layout-cmd rivertile "main-location top"
+riverctl map normal Super Right send-layout-cmd rivertile "main-location right"
+riverctl map normal Super Down send-layout-cmd rivertile "main-location bottom"
+riverctl map normal Super Left send-layout-cmd rivertile "main-location left"
+
+#################################################
+# TAGS
+#################################################
+for i in $(seq 1 9); do
+	tags=$((1 << ($i - 1)))
+	riverctl map normal Super $i set-focused-tags $tags
+	riverctl map normal Super+Shift $i set-view-tags $tags
+	riverctl map normal Super+Control $i toggle-focused-tags $tags
+	riverctl map normal Super+Shift+Control $i toggle-view-tags $tags
+done
+
+all_tags=$(((1 << 32) - 1))
+riverctl map normal Super 0 set-focused-tags $all_tags
+riverctl map normal Super+Shift 0 set-view-tags $all_tags
+
+#################################################
+# MEDIA-KEYS
+#################################################
+for mode in normal locked; do
+	riverctl map $mode None XF86MonBrightnessUp spawn "light -A 10"
+	riverctl map $mode None XF86MonBrightnessDown spawn "light -U 10"
+	riverctl map $mode None XF86Eject spawn "eject -T"
+	riverctl map $mode None XF86AudioRaiseVolume spawn "wpctl set-volume @DEFAULT_SINK@ 5%+"
+	riverctl map $mode None XF86AudioLowerVolume spawn "wpctl set-volume @DEFAULT_SINK@ 5%-"
+	riverctl map $mode None XF86AudioMute spawn "wpctl set-mute @DEFAULT_SINK@ toggle"
+	riverctl map $mode None XF86AudioMedia spawn "playerctl play-pause"
+	riverctl map $mode None XF86AudioPlay spawn "playerctl play-pause"
+	riverctl map $mode None XF86AudioPrev spawn "playerctl previous"
+	riverctl map $mode None XF86AudioNext spawn "playerctl next"
+done
+
+#################################################
+# POINTER
+#################################################
+riverctl map-pointer normal Super BTN_LEFT move-view
+riverctl map-pointer normal Super BTN_RIGHT resize-view
+riverctl set-cursor-warp on-focus-change
+riverctl focus-follows-cursor always
+
+#################################################
+# PASSTHROUGH-MODE
+#################################################
+riverctl declare-mode passthrough
+riverctl map normal Super F11 enter-mode passthrough
+riverctl map passthrough Super F11 enter-mode normal
+
+#################################################
+# SCRATCHPAD
+#################################################
+scratch_tag=$((1 << 20))
+riverctl map normal Super S toggle-focused-tags ${scratch_tag}
+riverctl map normal Super+Shift S set-view-tags ${scratch_tag}
+all_but_scratch_tag=$((((1 << 32) - 1) ^ $scratch_tag))
+riverctl spawn-tagmask ${all_but_scratch_tag}
+
+#################################################
+# FILTER
+#################################################
+riverctl float-filter-add app-id float
+riverctl float-filter-add title Picture-in-Picture
+riverctl float-filter-add title Picture_in_Picture
+riverctl float-filter-add app-id wlroots
+riverctl float-filter-add app-id org.freedesktop.Xwayland
+riverctl csd-filter-remove app-id org.freedesktop.Xwayland
+riverctl csd-filter-remove app-id firefox-esr
+riverctl csd-filter-remove app-id zathura
+riverctl csd-filter-remove app-id emacs
+
+#################################################
+# WIDGETS
+#################################################
+spawn_once dunst
+spawn_once kanshi
+spawn_once "foot --server"
+spawn_once "wlsunset -l -23.6 -L -43.5"
+notify-send -t 2048 "Hack The World!"
+
+#################################################
+# INTEROP
+#################################################
+gsettings set org.gnome.desktop.default-applications.terminal exec wezterm
+spawn_once dbus-river-environment
