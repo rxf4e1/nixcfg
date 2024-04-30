@@ -1,0 +1,1323 @@
+#+TITLE:   Emacs Literate Configuration
+#+AUTHOR:  rxf4e1
+#+Category: tangle
+#+STARTUP: overview
+---
+* Header
+#+begin_src emacs-lisp :tangle yes
+  ;;; config.el --- -*- lexical-binding: t -*-
+#+end_src
+
+* Core
+** Paths
+#+begin_src emacs-lisp :tangle yes
+(elpaca no-littering
+  (elpaca-wait)
+  (require 'no-littering))
+
+(setq no-littering-etc-directory (expand-file-name ".local/etc" user-emacs-directory)
+      no-littering-var-directory (expand-file-name ".local/var" user-emacs-directory))
+#+end_src
+
+** Saves
+#+begin_src emacs-lisp :tangle yes
+(require 'savehist)
+(require 'saveplace)
+(require 'recentf)
+
+(with-eval-after-load 'no-littering
+  (custom-set-variables
+   '(savehist-save-minibuffer-history t)
+   '(savehist-additional-variables '(kill-ring search-ring regexp-search-ring))
+   '(recentf-max-menu-items 10)
+   '(recentf-max-saved-items 20)
+   '(recentf-auto-cleanup 100)
+   '(history-length 25)
+   '(savehist-mode t)
+   '(savehist-file (no-littering-expand-var-file-name "savehist.el"))
+   '(save-place-mode nil)
+   '(recentf-mode t)
+   '(make-backup-files nil)
+   '(backup-inhibited nil)
+   '(create-lockfiles nil)))
+
+;; text properties severely bloat the history so delete them (courtesy of PythonNut)
+(defun unpropertize-savehist ()
+  (mapc (lambda (list)
+          (with-demoted-errors
+              (when (boundp list)
+                (set list (mapcar #'substring-no-properties (eval list))))))
+        '(kill-ring minibuffer-history helm-grep-history helm-ff-history file-name-history
+                    read-expression-history extended-command-history)))
+(add-hook 'kill-emacs-hook    #'unpropertize-savehist)
+(add-hook 'savehist-save-hook #'unpropertize-savehist)
+#+end_src
+
+** Better Defaults
+#+begin_src emacs-lisp :tangle yes
+;; For my "settings" I prefer to use custom-set-variables, which does a bunch of neat stuff.
+;; First, it calls a variable's "setter" function, if it has one.
+;; Second, it can activate modes as well as set variables.
+;; Third, it takes care of setting the default for buffer-local variables correctly.
+;; https://with-emacs.com/posts/tutorials/almost-all-you-need-to-know-about-variables/#_user_options
+;; https://old.reddit.com/r/emacs/comments/exnxha/withemacs_almost_all_you_need_to_know_about/fgadihl/
+(custom-set-variables
+ '(frame-title-format '("%b"))
+ '(ring-bell-function 'ignore)
+ '(apropos-do-all t)
+ '(echo-keystrokes 0.02)
+ '(global-auto-revert-mode t)
+ '(global-auto-revert-non-file-buffers t)
+ '(mouse-yank-at-point t)
+ '(track-eol t)
+ '(truncate-lines t)
+ '(frame-resize-pixelwise t)
+ '(frame-inhibit-implied-resize t)
+ '(use-dialog-box t) ; only for mouse events, which I seldom use
+ '(use-file-dialog nil)
+ '(use-short-answers t)
+ '(inhibit-splash-screen t)
+ '(inhibit-x-resources t)
+ '(inhibit-startup-echo-area-message "user") ; read the docstring
+ '(inhibit-startup-buffer-menu t))
+
+;; Allow some things that emacs would otherwise confirm.
+(dolist (cmd
+	 '(eval-expression
+	   downcase-region
+	   upcase-region
+	   narrow-to-region
+	   set-goal-column
+	   dired-find-alternate-file))
+  (put cmd 'disabled nil))
+
+;; Make some buffers immortal
+(defun my/immortal-buffers ()
+  (if (or (eq (current-buffer) (get-buffer "*scratch*"))
+	  (eq (current-buffer) (get-buffer "*Messages*")))
+      (progn (bury-buffer)
+	     nil)
+    t))
+(add-hook 'kill-buffer-query-functions 'my/immortal-buffers)
+#+end_src
+
+** Keybinds
+*** Unsets
+#+begin_src emacs-lisp :tangle yes
+;; Unset annoying keys
+(keymap-global-unset "C-z")
+(keymap-global-unset "C-x C-z")
+(keymap-global-unset "<kp-insert>")
+(keymap-global-unset "<insert>")
+#+end_src
+
+*** Sets
+#+begin_src emacs-lisp :tangle yes
+;; Set useful bindings
+(keymap-global-set "M-p" #'previous-line)
+(keymap-global-set "M-n" #'next-line)
+(keymap-global-set "M-SPC" #'set-mark-command)
+
+;; Shell Commands
+(keymap-global-set "C-c r" #'async-shell-command)
+(keymap-global-set "C-c C-c" #'my-compile-interactive)
+
+(defun my-compile-interactive ()
+  "Run ‘compile-command’ in an interactive mode. "
+  (interactive)
+  (let ((current-prefix-arg '(4)))
+    (call-interactively 'compile)))
+#+end_src
+
+** Aesthetic
+*** Colorize
+#+begin_src emacs-lisp :tangle no
+(defun xah-syntax-color-hex ()
+  "Syntax color text of the form 「#ff1100」 and 「#abc」 in current buffer.
+    URL `http://xahlee.info/emacs/emacs/emacs_CSS_colors.html'
+    Version 2017-03-12"
+  (interactive)
+  (font-lock-add-keywords
+   nil
+   '(("#[[:xdigit:]]\\{3\\}"
+      (0 (put-text-property
+	  (match-beginning 0)
+	  (match-end 0)
+	  'face (list :background
+		      (let* (
+			     (ms (match-string-no-properties 0))
+			     (r (substring ms 1 2))
+			     (g (substring ms 2 3))
+			     (b (substring ms 3 4)))
+			(concat "#" r r g g b b))))))
+     ("#[[:xdigit:]]\\{6\\}"
+      (0 (put-text-property
+	  (match-beginning 0)
+	  (match-end 0)
+	  'face (list :background (match-string-no-properties 0)))))))
+  (font-lock-flush))
+
+(defun xah-syntax-color-hsl ()
+  "Syntax color CSS's HSL color spec eg 「hsl(0,90%,41%)」 in current buffer.
+    URL `http://xahlee.info/emacs/emacs/emacs_CSS_colors.html'
+    Version 2017-02-02"
+  (interactive)
+  (require 'color)
+  (font-lock-add-keywords
+   nil
+   '(("hsl( *\\([0-9]\\{1,3\\}\\) *, *\\([0-9]\\{1,3\\}\\)% *, *\\([0-9]\\{1,3\\}\\)% *)"
+      (0 (put-text-property
+	  (+ (match-beginning 0) 3)
+	  (match-end 0)
+	  'face
+	  (list
+	   :background
+	   (concat
+	    "#"
+	    (mapconcat
+	     'identity
+	     (mapcar
+	      (lambda (x) (format "%02x" (round (* x 255))))
+	      (color-hsl-to-rgb
+	       (/ (string-to-number (match-string-no-properties 1)) 360.0)
+	       (/ (string-to-number (match-string-no-properties 2)) 100.0)
+	       (/ (string-to-number (match-string-no-properties 3)) 100.0)))
+	     "" )) ;  "#00aa00"
+	   ))))))
+  (font-lock-flush))
+
+(dolist (modes
+	 '(css-mode-hook
+	   emacs-lisp-mode-hook
+	   php-mode-hook
+	   html-mode-hook))
+  (add-hook modes (lambda ()
+		    (xah-syntax-color-hex)
+		    (xah-syntax-color-hsl))))
+#+end_src
+
+*** Cursor and Mouse
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ ;; Cursor
+ '(cursor-type 'box)
+ '(hl-line-mode t)
+ ;; Mouse
+ '(blink-cursor-mode nil)
+ '(mouse-avoidance-mode 'banish)
+ '(mouse-wheel-scroll-amount
+   '(1
+     ((shift) . 5)
+     ((meta) . 0.5)
+     ((control) . text-scale)))
+ '(mouse-drag-copy-region nil)
+ '(make-pointer-invisible t)
+ '(mouse-wheel-progressive-speed t)
+ '(mouse-wheel-follow-mouse t)
+ '(mouse-wheel-mode t)
+ ;; Scrolling behaviour
+ '(scroll-preserve-screen-position t)
+ '(scroll-conservatively 1) ; affects `scroll-step'
+ '(scroll-margin 4)
+ '(next-screen-context-lines 0))
+#+end_src
+
+*** Fontify
+#+begin_src emacs-lisp :tangle yes
+(elpaca fontaine
+  (elpaca-wait)
+  (require 'fontaine))
+(custom-set-variables
+ '(fontaine-latest-state-file
+   (locate-user-emacs-file "fontaine-latest-state.eld"))
+ '(fontaine-presets
+   '((small
+      :default-family "Iosevka"
+      :default-height 90)
+     (regular
+      :default-family "Iosevka"
+      :default-height 100)
+     (large
+      :default-family "Iosevka"
+      :default-weight semilight
+      :default-height 110)
+     (t
+      :default-family "Iosevka"
+      :default-weight regular
+      :default-height 90))))
+(with-eval-after-load 'fontaine
+  (fontaine-set-preset (or (fontaine-restore-latest-preset) 'regular)))
+(add-hook 'kill-emacs-hook #'fontaine-store-latest-preset)
+(keymap-global-set "C-c f" #'fontaine-set-preset)
+(keymap-global-set "C-c F" #'fontaine-set-face-font)
+
+(elpaca fontify-face
+  (fontify-face-mode 1))
+#+end_src
+
+*** Icons
+#+begin_src emacs-lisp :tangle yes
+(elpaca all-the-icons)
+;; (elpaca all-the-icons-dired)
+;; (add-hook 'dired-mode-hook 'all-the-icons-dired-mode)
+#+end_src
+
+*** Modeline
+#+begin_src emacs-lisp :tangle yes
+;; (elpaca mood-line
+;;   (mood-line-mode))
+(elpaca doom-modeline
+  (doom-modeline-mode))
+#+end_src
+
+*** Theme
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ '(modus-themes-common-palette-overrides
+      '((border-mode-line-active unspecified)
+        (border-mode-line-inactive unspecified)))
+ '(modus-themes-common-palette-overrides
+      '((fringe unspecified)))
+ '(modus-themes-to-toggle '(modus-operandi modus-vivendi)))
+(keymap-global-set "<f5>" #'modus-themes-toggle)
+(load-theme 'modus-vivendi t nil)
+
+;; (elpaca gruber-darker-theme
+;;   (elpaca-wait)
+;;   (load-theme 'gruber-darker t nil))
+#+end_src
+
+* Modules
+** Completions
+*** Inputs
+**** Orderless
+#+begin_src emacs-lisp :tangle yes
+(elpaca orderless)
+
+(custom-set-variables
+ '(orderless-component-separator " +")
+ '(completion-category-defaults nil)
+ '(completion-styles '(orderless flex initials partial-completion substring basic))
+ '(completion-category-overrides '((file (styles basic substring)))))
+#+end_src
+
+**** iComplete
+#+begin_src emacs-lisp :tangle no
+(icomplete-mode 1)
+(custom-set-variables
+ '(icomplete-separator " • ")
+ '(icomplete-vertical-mode nil)
+ '(icomplete-delay-completions-threshold 0)
+ '(icomplete-max-delay-chars 0)
+ '(icomplete-compute-delay 0)
+ '(icomplete-show-matches-on-no-input t)
+ '(icomplete-hide-common-prefix nil)
+ '(icomplete-in-buffer nil)
+ '(icomplete-prospects-height 1)
+ '(icomplete-with-completion-tables t)
+ '(icomplete-tidy-shadowed-file-names nil)
+ '(completions-format 'one-column))
+
+(custom-set-faces
+ `(icomplete-first-match ((t (:foreground "Green" :weight bold)))))
+
+(keymap-set icomplete-minibuffer-map "C-v" 'icomplete-vertical-mode)
+(keymap-set icomplete-minibuffer-map "C-p" 'icomplete-backward-completions)
+(keymap-set icomplete-minibuffer-map "C-n" 'icomplete-forward-completions)
+(keymap-set icomplete-minibuffer-map "<tab>" 'icomplete-force-complete)
+#+end_src
+
+**** Brotherhood
+***** Vertico
+#+begin_src emacs-lisp :tangle yes
+  (elpaca (vertico
+	   :host      github
+	   :files    
+	   (:defaults "*" (:exclude ".git"))
+	   :repo      "emacs-straight/vertico")
+    (vertico-mode 1))
+
+  (custom-set-variables
+   '(vertico-cycle t)
+   '(vertico-scroll-margin 2)
+   '(vertico-count 5)
+   '(vertico-resize nil))
+  (with-eval-after-load 'vertico
+    (keymap-set vertico-map "?" #'minibuffer-completion-help)
+    (keymap-set vertico-map "M-RET" #'minibuffer-force-complete-and-exit)
+    (keymap-set vertico-map "M-TAB" #'minibuffer-complete))
+#+end_src
+
+***** Marginalia
+#+begin_src emacs-lisp :tangle yes
+(elpaca (marginalia
+	 :repo      "minad/marginalia"
+	 :fetcher   github
+	 :files    
+	 (:defaults))
+  (marginalia-mode))
+
+(custom-set-variables
+ '(marginalia-max-relative-age 0)
+ '(marginalia-align 'left))
+#+end_src
+
+***** Consult
+#+begin_src emacs-lisp :tangle yes
+(elpaca (consult
+         :repo      "minad/consult"
+         :fetcher   github
+         :files    
+         (:defaults)))
+
+(custom-set-variables
+ '(register-preview-delay 0.5)
+ '(register-preview-function #'consult-register-format)
+ '(xref-show-xrefs-function #'consult-xref)
+ '(xref-show-definitions-function #'consult-xref))
+
+(with-eval-after-load 'consult
+  (consult-customize
+   consult-theme :preview-key '(:debounce 0.2 any)
+   consult-ripgrep consult-git-grep consult-grep
+   consult-bookmark consult-recent-file consult-xref
+   consult--source-bookmark consult--source-file-register
+   consult--source-recent-file consult--source-project-recent-file
+   ;; :preview-key "M-."
+   :preview-key '(:debounce 0.4 any))
+  ;; Optionally configure the narrowing key.
+  ;; Both < and C-+ work reasonably well.
+  (setq consult-narrow-key "<") ;; "C-+"
+
+  (add-to-list 'consult-preview-allowed-hooks 'global-org-modern-mode-check-buffers)
+  (add-to-list 'consult-preview-allowed-hooks 'global-hl-todo-mode-check-buffers)
+  (add-hook 'completion-list-mode-hook #'consult-preview-at-point-mode))
+
+;; Optionally tweak the register preview window.
+;; This adds thin lines, sorting and hides the mode line of the window.
+(advice-add #'register-preview :override #'consult-register-window)
+
+(keymap-global-set "C-x b" #'consult-buffer)
+(keymap-global-set "C-x C-r" #'consult-recent-file)
+(keymap-global-set "M-y" #'consult-yank-pop)
+(keymap-global-set "M-g e" #'consult-compile-error)
+(keymap-global-set "M-g f" #'consult-flymake)
+(keymap-global-set "M-g g" #'consult-goto-line)
+(keymap-global-set "M-g i" #'consult-imenu)
+(keymap-global-set "M-g I" #'consult-imenu-multi)
+(keymap-global-set "M-g o" #'consult-outline)
+(keymap-global-set "M-s d" #'consult-find)
+(keymap-global-set "M-s e" #'consult-isearch-history)
+(keymap-global-set "M-s g" #'consult-git-grep)
+(keymap-global-set "M-s l" #'consult-line)
+(keymap-global-set "M-s L" #'consult-line-multi)
+(keymap-global-set "M-s r" #'consult-ripgrep)
+(keymap-set minibuffer-local-map "M-r" #'consult-history)
+#+end_src
+
+**** Embark
+#+begin_src emacs-lisp :tangle yes
+(elpaca (embark
+         :repo "oantolin/embark"
+         :fetcher github
+         :files (:defaults "embark.el" "embark-org.el" "embark.texi")))
+(elpaca (embark-consult
+         :repo "oantolin/embark"
+         :fetcher github
+         :files (:defaults "embark-consult.el")))
+
+(setq embark-action-indicator
+      (lambda (map &optional _target)
+        (which-key--show-keymap "Embark" map nil nil 'no-paging)
+        #'which-key--hide-popup-ignore-command)
+      embark-become-indicator embark-action-indicator)
+;; Hide the mode line of the Embark live/completions buffers
+(add-to-list 'display-buffer-alist
+             '("\\`\\*Embark Collect \\(Live\\|Completions\\)\\*"
+               nil
+               (window-parameters (mode-line-format . none))))
+(defun embark-which-key-indicator ()
+  "An embark indicator that displays keymaps using which-key.
+    The which-key help message will show the type and value of the
+    current target followed by an ellipsis if there are further
+    targets."
+  (lambda (&optional keymap targets prefix)
+    (if (null keymap)
+        (which-key--hide-popup-ignore-command)
+      (which-key--show-keymap
+       (if (eq (plist-get (car targets) :type) 'embark-become)
+           "Become"
+         (format "Act on %s '%s'%s"
+                 (plist-get (car targets) :type)
+                 (embark--truncate-target (plist-get (car targets) :target))
+                 (if (cdr targets) "…" "")))
+       (if prefix
+           (pcase (lookup-key keymap prefix 'accept-default)
+             ((and (pred keymapp) km) km)
+             (_ (key-binding prefix 'accept-default)))
+         keymap)
+       nil nil t (lambda (binding)
+                   (not (string-suffix-p "-argument" (cdr binding))))))))
+
+(setq embark-indicators
+      '(embark-which-key-indicator
+        embark-highlight-indicator
+        embark-isearch-highlight-indicator))
+
+(defun embark-hide-which-key-indicator (fn &rest args)
+  "Hide the which-key indicator immediately when using the completing-read prompter."
+  (which-key--hide-popup-ignore-command)
+  (let ((embark-indicators
+         (remq #'embark-which-key-indicator embark-indicators)))
+    (apply fn args)))
+
+(advice-add #'embark-completing-read-prompter
+            :around #'embark-hide-which-key-indicator)
+
+(with-eval-after-load 'embark
+  (add-hook 'embark-collect-mode-hook 'consult-preview-at-point-mode))
+
+(keymap-global-set "M-]" #'embark-act)
+(keymap-global-set "C-h b" #'embark-bindings)
+#+end_src
+
+*** Texts
+**** Corfu
+#+begin_src emacs-lisp :tangle yes
+  (elpaca (corfu
+	   :host github
+	   :repo "minad/corfu"
+	   ;; :files (:defaults "extensions/*")
+	   )
+    ;; (global-corfu-mode)
+    (corfu-popupinfo-mode))
+
+  (elpaca (cape
+	   :repo      "minad/cape"
+	   :fetcher   github
+	   :inherit   t
+	   :depth     1))
+
+  (custom-set-variables
+   '(completion-cycle-threshold 2)
+   '(tab-always-indent 'complete)
+   '(corfu-auto t)
+   '(corfu-auto-delay 1)
+   '(corfu-auto-prefix 3)
+   '(corfu-cycle t)
+   '(corfu-echo-documentation t)
+   ;; '(corfu-popupinfo-delay 1)
+   '(corfu-quit-at-boundary t)
+   ;; '(corfu-separator ?_)
+   '(corfu-quit-no-match 't))
+
+  (add-hook 'prog-mode-hook 'corfu-mode)
+
+  (with-eval-after-load 'corfu
+    (add-to-list 'savehist-additional-variables #'corfu-history)
+    (add-to-list 'completion-at-point-functions #'cape-dabbrev)
+    (add-to-list 'completion-at-point-functions #'cape-file)
+    (add-to-list 'completion-at-point-functions #'cape-elisp-block)
+    (add-to-list 'completion-at-point-functions #'cape-keyword)
+    (keymap-set corfu-map "C-s" #'corfu-quit)
+    (keymap-set corfu-map "SPC" #'corfu-insert-separator)
+    (keymap-set corfu-map "M-t" #'corfu-popupinfo-toggle)
+    (keymap-set corfu-map "M-n" #'corfu-popupinfo-scroll-up)
+    (keymap-set corfu-map "M-p" #'corfu-popupinfo-scroll-down))
+#+end_src
+
+**** Hippie Expand
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ '(hippie-expand-try-functions-list
+   '(try-complete-file-name-partially
+	 try-complete-file-name	
+	 try-expand-all-abbrevs
+	try-expand-list
+	try-expand-line
+	yas-hippie-try-expand
+	try-expand-dabbrev
+	try-expand-dabbrev-all-buffers
+	try-expand-dabbrev-from-kill
+	try-complete-lisp-symbol-partially
+	try-complete-lisp-symbol)))
+
+(keymap-global-set "M-/" #'hippie-expand)
+#+end_src
+
+**** Snippets
+***** Skeleton
+#+begin_src emacs-lisp :tangle yes
+(with-eval-after-load 'org
+ (define-skeleton src-block-el
+  "Define emacs-lisp source block in org-mode."
+  >"#+begin_src emacs-lisp :tangle yes"\n
+  >""_ \n
+  >"#+end_src"\n
+  >"")
+
+(keymap-global-set "C-c s e" #'src-block-el))
+#+end_src
+
+***** Yasnippet
+#+begin_src emacs-lisp :tangle yes
+(elpaca (yasnippet
+	 :repo      "joaotavora/yasnippet"
+	 :fetcher   github
+	 :files    
+	 (:defaults "yasnippet.el" "snippets")))
+(elpaca yasnippet-snippets)
+(add-hook 'prog-mode-hook 'yas-minor-mode)
+#+end_src
+
+** Editor
+*** Buffers
+**** iBuffer
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ '(uniquify-buffer-name-style 'reverse)
+ '(uniquify-separator " • ")
+ '(uniquify-after-kill-buffer-p t)
+ '(uniquify-ignore-buffers-re "^\\*")
+ '(ibuffer-show-empty-filter-groups nil)
+ '(ibuffer-expert t)
+ '(ibuffer-saved-filter-groups
+   '(("default"
+      ("EMACS CONFIG"
+       (filename . ".emacs.d/config"))
+      ("EMACS LISP"
+       (mode . emacs-lisp-mode))
+      ("DIRED"
+       (mode . dired-mode))
+      ("ORG"
+       (mode . org-mode))
+      ("CODE"
+       (mode . prog-mode)
+       (mode . rustic-mode)
+       (mode . zig-mode))
+      ("WEBDEV"
+       (or
+        (mode . html-mode)
+        (mode . css-mode)
+        (mode . js-mode)
+        (mode . ts-mode)))
+      ("EPUB/PDF"
+       (or
+        (mode . pdf-view-mode)
+        (mode . nov-mode)))
+      ("EWW"
+       (mode . eww-mode))
+      ("HELM"
+       (mode . helm-major-mode))
+      ("HELP"
+       (or
+        (name . "\*Help\*")
+        (name . "\*Apropos\*")
+        (name . "\*info\*")
+        (name . "\*Warnings\*")))
+      ("SPECIAL BUFFERS"
+       (or
+        (name . "\*scratch\*")
+        (name . "\*Messages\*")
+        (name . "\*straight-process\*")
+        (name . "\*direnv\*")))))))
+
+(add-hook 'ibuffer-mode-hook (lambda ()
+                               (ibuffer-auto-mode t)
+                               (ibuffer-switch-to-saved-filter-groups "default")))
+
+(keymap-global-set "C-x C-b" #'ibuffer)
+#+end_src
+
+**** Mct
+#+begin_src emacs-lisp :tangle no
+(elpaca mct
+  (mct-mode 1))
+
+(custom-set-variables
+ '(mct-hide-completion-mode-line t)
+ '(mct-completion-passlist
+   '(consult-buffer
+     consult-location
+     embark-keybinding
+     buffer
+     imenu
+     kill-ring))
+ '(mct-completion-blocklist nil)
+ '(mct-remove-shadowed-file-names t)
+ '(mct-completion-window-size (cons #'mct-frame-height-third 1))
+ '(mct-persist-dynamic-completion nil)
+ '(mct-live-update-delay 0.6)
+ '(mct-live-completion 'visible))
+#+end_src
+
+*** Crux
+#+begin_src emacs-lisp :tangle yes
+(elpaca crux)
+
+(with-eval-after-load 'crux
+  (crux-with-region-or-buffer indent-region)
+  (crux-with-region-or-buffer untabify)
+  (crux-with-region-or-point-to-eol kill-ring-save)
+  (defalias 'rename-file-and-buffer 'crux-rename-file-and-buffer))
+
+(keymap-global-set "C-a" #'crux-move-beginning-of-line)
+(keymap-global-set "C-x 4 t" #'crux-transpose-windows)
+(keymap-global-set "C-k" #'crux-kill-whole-line)
+(keymap-global-set "C-o" #'crux-smart-open-line-above)
+(keymap-global-set "C-j" #'crux-smart-open-line)
+(keymap-global-set "C-c c ;" #'crux-duplicate-and-comment-current-line-or-region)
+(keymap-global-set "C-c c c" #'crux-cleanup-buffer-or-region)
+(keymap-global-set "C-c c d" #'crux-duplicate-current-line-or-region)
+(keymap-global-set "C-c c f" #'crux-recentf-find-file)
+(keymap-global-set "C-c c F" #'crux-recentf-find-directory)
+(keymap-global-set "C-c c k" #'crux-kill-other-buffers)
+(keymap-global-set "C-c c r" #'crux-reopen-as-root-mode)
+#+end_src
+
+*** Dired
+#+begin_src emacs-lisp :tangle yes
+  (elpaca dired-subtree
+    (require 'dired-subtree))
+  (elpaca diredfl
+    (require 'diredfl))
+  (elpaca dired-sidebar
+    (require 'dired-x))
+
+  (custom-set-variables
+   ;; '(dired-listing-switches "-lGhA1vDpX --group-directories-first")
+   '(dired-listing-switches "-alh --group-directories-first")
+   '(dired-kill-when-opening-new-dired-buffer t)
+   '(dired-recursive-copies 'always)
+   '(dired-recursive-deletes 'always)
+   '(delete-by-moving-to-trash t)
+   '(dired-dwim-target t)
+   '(dired-subtree-use-backgrounds nil)
+   '(dired-guess-shell-alist-user
+     '(("\\.\\(mp[34]\\|m4a\\|ogg\\|flac\\|webm\\|mkv\\)" "ffplay" "xdg-open"))))
+
+  (add-hook 'dired-mode-hook #'dired-hide-details-mode)
+  (add-hook 'dired-mode-hook #'hl-line-mode)
+
+  (keymap-global-unset "C-x d")
+  (keymap-global-set "C-x d d" #'dired)
+  (keymap-global-set "C-x d f" #'dired-x-find-file)
+  (keymap-global-set "C-x d s" #'dired-sidebar-toggle-sidebar)
+  (with-eval-after-load 'dired
+    (keymap-set dired-mode-map "<tab>" #'dired-subtree-toggle)
+    (keymap-set dired-mode-map "<backtab>" #'dired-subtree-remove)
+    (keymap-set dired-mode-map "C-TAB" #'dired-subtree-cycle)
+    (keymap-set dired-mode-map "M-RET" #'dired-open-file))
+
+  (defun dired-open-file ()
+    "In dired, open the file named on this line."
+    (interactive)
+    (let* ((file (dired-get-filename nil t)))
+      (message "Opening %s..." file)
+      (call-process "xdg-open" nil 0 nil file)
+      (message "Opening %s done" file)))
+
+  (defun sidebar-toggle ()
+    "Toggle both `dired-sidebar’ and `ibuffer-sidebar’"
+    (interactive)
+    (dired-sidebar-toggle-sidebar))
+#+end_src
+
+*** Environment
+#+begin_src emacs-lisp :tangle yes
+(elpaca exec-path-from-shell)
+(elpaca envrc
+  (envrc-global-mode))
+
+(custom-set-variables
+ '(direnv-always-show-summary nil)
+ '(direnv-show-paths-in-summary nil)
+ '(exec-path-from-shell-variables
+   '("PATH" "MANPATH" "NIX_PATH" "NIX_SSL_CERT_FILE")))
+
+(with-eval-after-load 'envrc
+  (keymap-set envrc-mode-map "C-c e e" #'envrc-command-map))
+#+end_src
+
+*** Expand Region
+#+begin_src emacs-lisp :tangle yes
+(elpaca expand-region)
+
+(custom-set-variables
+ '(expand-region-fast-keys-enabled nil)
+ '(er--show-expansion-message t))
+
+(keymap-global-set "C-=" #'er/expand-region)
+(keymap-global-set "C-+" #'er/contract-region)
+#+end_src
+
+*** Git
+#+begin_src emacs-lisp :tangle yes
+(elpaca magit)
+(keymap-global-set "C-x g d" #'magit-diff)
+(keymap-global-set "C-x g s" #'magit-status)
+#+end_src
+
+*** Hydra
+ #+begin_src emacs-lisp :tangle no
+ 
+ #+end_src
+ 
+*** iSearch
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ '(search-highlight t)
+ '(search-whitespace-regexp ".*?")
+ '(isearch-lax-whitespace t)
+ '(isearch-regexp-lax-whitespace nil)
+ '(isearch-lazy-highlight t)
+ '(isearch-lazy-count t)
+ '(lazy-count-prefix-format nil)
+ '(lazy-count-suffix-format " (%s/%s)")
+ '(isearch-yank-on-move 'shift)
+ '(isearch-allow-scroll 'unlimited)
+ '(isearch-repeat-on-direction-change t)
+ '(lazy-highlight-initial-delay 0.5)
+ '(lazy-highlight-no-delay-length 3)
+ '(isearch-wrap-pause t))
+(keymap-global-set "C-s" #'isearch-forward-regexp)
+(keymap-global-set "C-M-s" #'isearch-forward)
+(keymap-global-set "C-r" #'isearch-backward-regexp)
+(keymap-global-set "C-M-r" #'isearch-backward)
+#+end_src
+
+*** Modal
+**** Meow
+#+begin_src emacs-lisp :tangle no
+(elpaca meow
+  (require 'meow)
+  (meow-setup)
+  (meow-global-mode t))
+
+(defun meow-setup ()
+  (setq meow-cheatsheet-layout meow-cheatsheet-layout-qwerty)
+  (meow-motion-overwrite-define-key
+   '("j" . meow-next)
+   '("k" . meow-prev)
+   '("<escape>" . ignore))
+  (meow-leader-define-key
+   ;; SPC j/k will run the original command in MOTION state.
+   '("j" . "H-j")
+   '("k" . "H-k")
+   ;; Use SPC (0-9) for digit arguments.
+   '("1" . meow-digit-argument)
+   '("2" . meow-digit-argument)
+   '("3" . meow-digit-argument)
+   '("4" . meow-digit-argument)
+   '("5" . meow-digit-argument)
+   '("6" . meow-digit-argument)
+   '("7" . meow-digit-argument)
+   '("8" . meow-digit-argument)
+   '("9" . meow-digit-argument)
+   '("0" . meow-digit-argument)
+   '("/" . meow-keypad-describe-key)
+   '("?" . meow-cheatsheet))
+  (meow-normal-define-key
+   '("0" . meow-expand-0)
+   '("9" . meow-expand-9)
+   '("8" . meow-expand-8)
+   '("7" . meow-expand-7)
+   '("6" . meow-expand-6)
+   '("5" . meow-expand-5)
+   '("4" . meow-expand-4)
+   '("3" . meow-expand-3)
+   '("2" . meow-expand-2)
+   '("1" . meow-expand-1)
+   '("-" . negative-argument)
+   '(";" . meow-reverse)
+   '("," . meow-inner-of-thing)
+   '("." . meow-bounds-of-thing)
+   '("[" . meow-beginning-of-thing)
+   '("]" . meow-end-of-thing)
+   '("a" . meow-append)
+   '("A" . meow-open-below)
+   '("b" . meow-back-word)
+   '("B" . meow-back-symbol)
+   '("c" . meow-change)
+   '("d" . meow-delete)
+   '("D" . meow-backward-delete)
+   '("e" . meow-next-word)
+   '("E" . meow-next-symbol)
+   '("f" . meow-find)
+   '("g" . meow-cancel-selection)
+   '("G" . meow-grab)
+   '("h" . meow-left)
+   '("H" . meow-left-expand)
+   '("i" . meow-insert)
+   '("I" . meow-open-above)
+   '("j" . meow-next)
+   '("J" . meow-next-expand)
+   '("k" . meow-prev)
+   '("K" . meow-prev-expand)
+   '("l" . meow-right)
+   '("L" . meow-right-expand)
+   '("m" . meow-join)
+   '("n" . meow-search)
+   '("o" . meow-block)
+   '("O" . meow-to-block)
+   '("p" . meow-yank)
+   '("q" . meow-quit)
+   '("Q" . meow-goto-line)
+   '("r" . meow-replace)
+   '("R" . meow-swap-grab)
+   '("s" . meow-kill)
+   '("t" . meow-till)
+   '("u" . meow-undo)
+   '("U" . meow-undo-in-selection)
+   '("v" . meow-visit)
+   '("w" . meow-mark-word)
+   '("W" . meow-mark-symbol)
+   '("x" . meow-line)
+   '("X" . meow-goto-line)
+   '("y" . meow-save)
+   '("Y" . meow-sync-grab)
+   '("z" . meow-pop-selection)
+   '("'" . repeat)
+   '("<escape>" . ignore)))
+#+end_src
+
+*** Parens
+**** Rainbow
+#+begin_src emacs-lisp :tangle yes
+(elpaca rainbow-delimiters)
+(add-hook 'prog-mode-hook 'rainbow-delimiters-mode)
+#+end_src
+
+**** Electric
+#+begin_src emacs-lisp :tangle yes
+(electric-pair-mode t)
+(electric-indent-mode t)
+(electric-quote-mode nil)
+(custom-set-variables
+ '(show-paren-style 'parenthesis)
+ '(show-paren-when-point-in-periphery nil)
+ '(show-paren-when-point-inside-paren nil)
+ '(electric-pair-preserve-balance t)
+ '(electric-pair-skip-whitespace nil)
+ '(electric-pair-skip-self 'electric-pair-default-skip-self)
+ '(electric-pair-skip-whitespace-chars '(9 10 32))
+ '(electric-pair-pairs
+   '((34   . 34)
+     (8216 . 8217)
+     (8220 . 8221)
+     (171  . 187))))
+#+end_src
+
+*** Project
+#+begin_src emacs-lisp :tangle yes
+  (custom-set-variables
+   '(project-compilation-buffer-name-function 'project-prefixed-buffer-name)
+   '(project-vc-extra-root-markers
+     '("Cargo.toml" "build.zig" "compile_commands.json"
+       "deps.edn" "project.clj" "shadow-cljs.edn" ".git"
+       "flake.nix")))
+#+end_src
+
+*** Terminal
+**** eShell
+#+begin_src emacs-lisp :tangle yes
+  (setenv "PAGER" "cat")
+
+  ;; Save command history when commands are entered
+  (add-hook 'eshell-pre-command-hook 'eshell-save-some-history)
+
+  (add-hook 'eshell-before-prompt-hook
+	    (lambda ()
+	      (setq xterm-color-preserve-properties t)))
+
+  (setq eshell-prompt-function
+	(lambda ()
+	  (concat (format-time-string "%Y-%m-%d %H:%M" (current-time))
+		  (if (= (user-uid) 0) " # " " λ "))))
+
+  (custom-set-variables
+   '(eshell-prompt-regexp                    "^[^λ]+ λ ")
+   '(eshell-history-size                     1024)
+   '(eshell-buffer-maximum-lines             5120)
+   '(eshell-hist-ignoredups                  t)
+   '(eshell-highlight-prompt                 t)
+   '(eshell-prefer-lisp-functions            nil)
+   '(eshell-scroll-to-bottom-on-input        'all)
+   '(eshell-error-if-no-glob                 t)
+   '(eshell-show-maximum-output              nil)
+   '(eshell-destroy-buffer-when-process-dies t))
+
+  (defun rx/eshell-clear ()
+    "Clear the eshell buffer."
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (eshell-send-input)))
+
+  (add-hook 'eshell-mode-hook
+	    (lambda ()
+	      (add-to-list 'eshell-visual-commands "ssh")
+	      (add-to-list 'eshell-visual-commands "tail")
+	      (add-to-list 'eshell-visual-commands "top")
+	      ;; Aliases
+	      (eshell/alias "c" "eshell/clear-scrollback")
+	      (eshell/alias "q" "eshell/exit")))
+#+end_src
+
+**** Eat
+#+begin_src emacs-lisp :tangle yes
+(elpaca (eat :type git
+             :host codeberg
+             :repo "akib/emacs-eat"
+             :files ("*.el" ("term" "term/*.el") "*.texi"
+                     "*.ti" ("terminfo/e" "terminfo/e/*")
+                     ("terminfo/65" "terminfo/65/*")
+                     ("integration" "integration/*")
+                     (:exclude ".dir-locals.el" "*-tests.el"))))
+
+(add-hook 'eshell-load-hook #'eat-eshell-mode)
+;; (add-hook 'eshell-load-hook #'eat-eshell-visual-command-mode)
+#+end_src
+
+**** vTerm
+#+begin_src emacs-lisp :tangle yes
+(elpaca vterm)
+(keymap-global-set "C-c t" #'vterm)
+#+end_src
+
+*** Vundo
+#+begin_src emacs-lisp :tangle yes
+(elpaca vundo)
+
+(with-eval-after-load 'vundo
+  (setq vundo-glyph-alist vundo-unicode-symbols)
+  (set-face-attribute 'vundo-default nil :family "Symbola"))
+
+(keymap-global-set "C-x u" #'vundo)
+#+end_src
+
+*** Which-key
+#+begin_src emacs-lisp :tangle yes
+(elpaca which-key
+  (which-key-mode t))
+
+(custom-set-variables
+ '(which-key-idle-delay 3)
+ '(which-key-enable-extended-define-key t)
+ '(which-key-side-window-max-width 0.33)
+ '(which-key-show-early-on-C-h t)
+ '(which-key-show-major-mode t)
+ '(which-key-popup-type 'minibuffer)
+ '(which-key-side-window-location 'bottom)
+ ;; '(which-key-sort-order 'which-key-local-then-key-order)
+ '(which-key-sort-order 'which-key-key-order-alpha))
+#+end_src
+
+*** Window
+**** Moving
+#+begin_src emacs-lisp :tangle yes
+(elpaca ace-window)
+
+(setq aw-keys '(?1 ?2 ?3 ?4 ?5))
+(keymap-global-set "M-o" #'other-window)
+(keymap-global-set "M-g c" #'avy-goto-char)
+(keymap-global-set "M-g C" #'avy-goto-word-or-subword-1)
+#+end_src
+
+**** Resizing
+#+begin_src emacs-lisp :tangle yes
+(elpaca windresize)
+(keymap-global-set "C-c w" #'windresize)
+#+end_src
+
+**** Splitting
+#+begin_src emacs-lisp :tangle yes
+(defun split-and-follow-horizontally ()
+  (interactive)
+  (split-window-below)
+  (balance-windows)
+  (other-window 1))
+
+(defun split-and-follow-vertically ()
+  (interactive)
+  (split-window-right)
+  (balance-windows)
+  (other-window 1))
+
+(keymap-global-set "C-x 2" #'split-and-follow-horizontally)
+(keymap-global-set "C-x 3" #'split-and-follow-vertically)
+(keymap-global-set "C-x <deletechar>" #'kill-buffer-and-window)
+#+end_src
+
+**** Placing
+#+begin_src emacs-lisp :tangle yes
+(custom-set-variables
+ '(display-buffer-alist
+   '(("\\`\\*Async Shell Command\\*\\'"
+      (display-buffer-no-window))
+     ("\\`\\*\\(Warnings\\|Compile-Log\\|Org Links\\)\\*\\'"
+      (display-buffer-no-window))
+     ("\\*e?shell\\*"
+      (display-buffer-in-side-window)
+      (side . bottom)
+      (window-height . 0.25)
+      (slot . 3))
+     ("\\*.*\\(v?term\\).*"
+      (display-buffer-in-side-window)
+      (side . right)
+      (window-width . 0.45)
+      (dedicated . t))
+     ("\\*.*\\([Hh]elp\\|[Mm]etahelp\\).*"
+      (display-buffer-in-side-window)
+      (side . right)
+      (window-width . 0.3)
+      (dedicated . t)
+      (body-function . my-select-window))
+     ("\\*compilation\\*"
+      (display-buffer-in-side-window)
+      (side . right)
+      (window-width . 0.5)
+      (dedicated . t)
+      (body-function . my-select-window))
+     ("\\*Colors\\*"
+      (display-buffer-reuse-mode-window
+       display-buffer-at-bottom)
+      (window-height . 0.25)
+      (slot . 2)
+      (body-function . my-select-window)))))
+
+(defun my-select-window (window)
+  (select-window window))
+#+end_src
+
+** Code
+*** Indent
+#+begin_src emacs-lisp :tangle no
+(elpaca highlight-indent-guides)
+(add-hook 'prog-mode-hook 'highlight-indent-guides-mode)
+(custom-set-variables
+ '(highlight-indent-guides-method 'bitmap)
+ '(highlight-indent-guides-bitmap-function 'highlight-indent-guides--bitmap-line)
+ '(highlight-indent-guides-auto-odd-face-perc 15)
+ '(highlight-indent-guides-auto-even-face-perc 15)
+ '(highlight-indent-guides-auto-character-face-perc 15)
+ '(highlight-indent-guides-suppress-auto-error t))
+#+end_src
+
+*** Langs
+**** C
+#+begin_src emacs-lisp :tangle yes
+(add-hook 'c-mode-hook #'eglot-ensure)
+#+end_src
+
+**** Hare
+#+begin_src emacs-lisp :tangle yes
+(elpaca (hare-mode
+	 :fetcher sourcehut
+	 :repo "bbuccianti/hare-mode"))
+#+end_src
+
+**** Lua
+#+begin_src emacs-lisp :tangle no
+  (elpaca lua-mode)
+  (add-to-list 'auto-mode-alist '("\\.lua\\’" . lua-mode))
+  (add-hook 'lua-mode-hook 'eglot-ensure)
+#+end_src
+
+**** Rust
+#+begin_src emacs-lisp :tangle no
+  (elpaca rustic)
+  (custom-set-variables
+   '(rustic-lsp-client 'eglot)
+   '(rust-format-on-save t))
+  (add-hook 'rustic-mode-hook 'eglot-ensure)
+#+end_src
+
+**** Zig
+#+begin_src emacs-lisp :tangle yes
+(elpaca zig-mode)
+(add-to-list 'auto-mode-alist '("\\.zig\\’" . zig-mode))
+(add-hook 'zig-mode-hook 'eglot-ensure)
+#+end_src
+
+**** Web
+***** Emmet
+#+begin_src emacs-lisp :tangle no
+
+#+end_src
+
+***** Css
+#+begin_src emacs-lisp :tangle no
+
+#+end_src
+
+***** Js/Ts
+#+begin_src emacs-lisp :tangle no
+  (elpaca typescript-mode)
+
+  (with-eval-after-load 'typescript-mode
+    (add-hook 'typescript-mode-hook #'eglot-ensure))
+#+end_src
+
+***** Web-mode
+#+begin_src emacs-lisp :tangle no
+
+#+end_src
+
+*** Modes
+**** Sh-mode
+#+begin_src emacs-lisp :tangle yes
+  (add-to-list 'auto-mode-alist '("\\.sh\\’" . sh-mode))
+  (add-hook 'sh-mode-hook 'eglot-ensure)
+#+end_src
+
+**** Json
+#+begin_src emacs-lisp :tangle yes
+  (elpaca json-mode)
+  (add-to-list 'auto-mode-alist '("\\.json\\'" . json-mode))
+#+end_src
+
+**** Markdown
+#+begin_src emacs-lisp :tangle yes
+(elpaca markdown-mode)
+(add-to-list 'auto-mode-alist '("\\.\\(?:md\\|markdown\\|mkd\\)\\'" . markdown-mode))
+(add-hook 'markdown-mode 'eglot-ensure)
+#+end_src
+
+**** Nix
+#+begin_src emacs-lisp :tangle yes
+  (elpaca nix-mode)
+  (add-to-list 'auto-mode-alist '("\\.nix\\’" . nix-mode))
+  (with-eval-after-load 'eglot
+    (add-to-list 'eglot-server-programs '(nix-mode . ("nil"))))
+  (add-hook 'nix-mode-hook 'eglot-ensure)
+#+end_src
+
+**** Toml
+#+begin_src emacs-lisp :tangle yes
+  (elpaca toml-mode)
+  (add-to-list 'auto-mode-alist '("\\.toml\\'" . toml-mode))
+#+end_src
+
+**** Yaml
+#+begin_src emacs-lisp :tangle yes
+  (elpaca yaml-mode)
+  (add-to-list 'auto-mode-alist '("\\.yaml\\'" . yaml-mode))
+#+end_src
+
+*** Syntax
+**** FlyMake
+#+begin_src emacs-lisp :tangle no
+;; (elpaca sideline-flymake)
+(custom-set-variables
+ ;; '(sideline-flymake-display-mode 'point)
+ ;; '(sideline-flymake-max-lines 2)
+ ;; '(sideline-backends-right '(sideline-flymake))
+ '(flymake-mode-line-lighter "FlyM"))
+#+end_src
+
+**** Debuger
+#+begin_src emacs-lisp :tangle no
+
+#+end_src
+
+** Org
+*** Org-mode
+#+begin_src emacs-lisp :tangle yes
+  (elpaca org-contrib)
+  (custom-set-variables
+   '(org-directory "~/docs/org/")
+   '(org-startup-with-inline-images (display-graphic-p))
+   '(org-startup-align-all-tables t)
+   '(org-use-speed-commands t)
+   '(org-use-fast-todo-selection 'expert)
+   '(org-fast-tag-selection-single-key 'expert)
+   '(org-hide-emphasis-markers t)
+   '(org-adapt-indentation t)
+   '(org-confirm-babel-evaluate t)
+   '(org-pretty-entities t)
+   '(org-support-shift-select t)
+   '(org-edit-src-content-indentation 2)
+   '(org-src-tab-acts-natively t)
+   '(org-src-fontify-natively t)
+   '(org-src-preserve-indentation t)
+   '(org-src-window-setup 'current-window)
+   '(org-src-strip-leading-and-trailing-blank-lines t)
+   '(org-todo-keywords
+     '((sequence "IDEA(i)" "TODO(t)" "STARTED(s)" "NEXT(n)" "WAITING(w)" "|" "DONE(d)")
+       (sequence "|" "CANCELED(c)" "DELEGATED(l)" "SOMEDAY(f)"))))
+
+  (add-hook 'org-mode-hook (lambda ()
+                             (org-indent-mode)
+                             (auto-fill-mode)
+                             (org-superstar-mode)))
+#+end_src
+
+*** Org-capture
+#+begin_src emacs-lisp :tangle no
+
+#+end_src
+
+*** Org-superstar
+#+begin_src emacs-lisp :tangle yes
+  (elpaca org-superstar)
+  (custom-set-variables
+   '(org-superstar-headline-bullets-list
+     ;; '("☰" "☷" "☵" "☲"  "☳" "☴"  "☶"  "☱")
+     '("◉" "●" "○" "○" "○" "○" "○"))
+   '(org-superstar-leading-bullet " "))
+#+end_src
+
+** Others
+*** Academic
+*** Denote
+#+begin_src emacs-lisp :tangle yes
+(elpaca denote)
+(custom-set-variables
+ '(denote-directory "~/Documents/30-39_Notes/33_Denote")
+ '(denote-rename-buffer-mode t)
+ '(denote-infer-keywords t)
+ '(denote-sort-keywords t)
+ '(denote-backlinks-show-context t)
+ '(denote-known-keywords '("code" "work"))
+ '(denote-file-type nil))
+(add-hook 'find-file-hook 'denote-link-buttonize-buffer)
+(add-hook 'dired-mode-hook 'denote-dired-mode)
+(keymap-global-set "C-c d n" #'denote)
+(keymap-global-set "C-c d c" #'denote-region)
+(keymap-global-set "C-c d z" #'denote-signature) 		;zettelkasten mnemonic
+(keymap-global-set "C-c d t" #'denote-template)
+(keymap-global-set "C-c d N" #'denote-type)
+(keymap-global-set "C-c d d" #'denote-date)
+(keymap-global-set "C-c d s" #'denote-subdirectory)
+(keymap-global-set "C-c d i" #'denote-link)
+(keymap-global-set "C-c d I" #'denote-add-links)
+(keymap-global-set "C-c d b" #'denote-backlinks)
+(keymap-global-set "C-c d f f" #'denote-find-file)
+(keymap-global-set "C-c d f b" #'denote-find-backlink)
+(keymap-global-set "C-c d r" #'denote-rename-file)
+(keymap-global-set "C-c d R" #'denote-rename-file-using-front-matter)
+#+end_src
+
+*** Epub/Pdf
+#+begin_src emacs-lisp :tangle no
+(elpaca nov)
+(elpaca pdf-tools
+  (elpaca-wait)
+  (if (fboundp 'pdf-loader-install)
+      (pdf-loader-install t t t)
+    (pdf-tools-install t t t)))
+(custom-set-variables
+ '(pdf-view-midnight-colors '("#839496" . "#002b36"))
+ '(pdf-view-display-size 'fit-page))
+(add-hook 'pdf-view-mode-hook 'pdf-view-midnight-minor-mode)
+#+end_src
+
+* Custom
+#+begin_src emacs-lisp :tangle yes
+(setq custom-file (expand-file-name "customs.el" user-emacs-directory))
+#+end_src
+
+* Footer
+#+begin_src emacs-lisp :tangle yes
+  ;;; config.el ends here.
+#+end_src

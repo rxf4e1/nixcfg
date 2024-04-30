@@ -1,0 +1,16 @@
+{ config, lib, pkgs, ... }: let
+  startw = pkgs.writeShellScriptBin "startw" ''
+    cd ~
+    if [ -z $DISPLAY ]; then
+    exec sway
+    else
+    echo "Sway Wayland Compositor is running."
+    fi
+  '';
+in {
+  home.packages = [
+    startw
+    pkgs.swayfx
+
+  ];
+}
